@@ -4,6 +4,7 @@ gem 'ruby2ruby'
 require 'ruby2ruby'
 require 'parse_tree'
 require 'parse_tree_extensions'
+require 'drb/drb'
 class Code
   extend ElMixin
 
@@ -202,9 +203,24 @@ class Code
     path = buffer_file_name
     # Chop off up until before /spec/
     dir, spec = path.match(/(.+)\/(spec\/.+)/)[1,2]
-    Console.run "spec #{spec}#{test}", :dir => dir, :buffer => '*console for rspec', :reuse_buffer => true
+    options = spec_server_running?? ' --drb ' : ''
+    Console.run "spec #{options}#{spec}#{test}", :dir => dir, :buffer => '*console for rspec', :reuse_buffer => true
     orig.go unless View.index == orig_index   # Go back unless in same view
+  end
 
+  def self.spec_server_running?
+    unless @drb_local_server
+      @drb_local_server = Object.new
+      DRb.start_service(nil, @drb_local_server, nil)
+    end
+    spec_server = DRbObject.new_with_uri("druby://localhost:8989")
+    begin
+      spec_server.alive?
+    rescue NoMethodError
+      true
+    rescue DRb::DRbConnError
+      false
+    end
   end
 
   def self.load_this_file
