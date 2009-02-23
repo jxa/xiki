@@ -7,12 +7,12 @@ class Move
   # Go to last line having indent
   def self.to_indent
     direction_down = true   # Assume down
-    if Keys.prefix_u   # If U, reverse
+    prefix = Keys.prefix
+    if prefix == :u   # If U, reverse
       direction_down = false
     else
       column = Keys.prefix   # If numeric, make that be the indent
     end
-
     line = Line.value
     # If end of block, reverse direction
     if line =~ /^ *(end|\]|\}|\))$/

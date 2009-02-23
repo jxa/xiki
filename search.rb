@@ -1,8 +1,29 @@
 require "hide"
 require 'control_lock'
+require 'line'
+require 'text_util'
 
 class Search
   extend ElMixin
+  @@case_options = nil
+
+  def self.case_options
+    return @@case_options if @@case_options
+    @@case_options = []   # Set to empty if not set yet
+    self.add_case_option 'upper', proc {|txt| txt.upcase}
+    self.add_case_option 'lower', proc {|txt| txt.downcase}
+    self.add_case_option 'camel', proc {|txt| TextUtil.camel_case(txt)}
+    self.add_case_option 'snake', proc {|txt| TextUtil.snake_case(txt)}
+    @@case_options
+  end
+
+  # Make another option show up for View.cases
+  def self.add_case_option name, the_proc
+    # Delete if there already
+    @@case_options.delete_if{|i| i.first == name}
+    @@case_options << [name, the_proc]
+  end
+
   def self.insert_at_spot
     self.clear
     match = self.match
@@ -81,7 +102,7 @@ class Search
   def self.paste_here
     self.clear
     View.delete(Search.left, Search.right)
-    insert Clipboard.get("0")
+    insert Clipboard.get
   end
 
   def self.copy_and_comment
@@ -159,7 +180,7 @@ class Search
         Keys.input(:prompt=>"With: "))
     # If they typed 'c', use clipboard and prompt for 2nd arg
     elsif first == "c"
-      query_replace_regexp(Clipboard.get("0"), Keys.input(:prompt=>"Replace with (pause when done): ", :timed=>true))
+      query_replace_regexp(Clipboard.get, Keys.input(:prompt=>"Replace with (pause when done): ", :timed=>true))
     # If they typed 'c', use clipboard and prompt for 2nd arg
     elsif first == "l"
       query_replace_regexp(@@query_from, @@query_to)
@@ -188,7 +209,7 @@ class Search
   def self.tree_grep
     dir = Keys.bookmark_as_path   # Get path (from bookmark)
     input = case Keys.prefix
-      when :u;  Clipboard.get("0")
+      when :u;  Clipboard.get
       when 1;  Clipboard.get("1")
       when 2;  Clipboard.get("2")
       else;  Keys.input(:prompt=>"Text to search for: ")
@@ -284,6 +305,7 @@ class Search
   end
 
   def self.find_in_buffers string, options={}
+    string.gsub!('"', '\\"')
     new_args = "\"#{string}\""
     new_options = {}
     new_options[:buffer] = View.buffer_name if options[:current_only]
@@ -522,6 +544,13 @@ class Search
     browse_url "http://google.com/search?q=#{term}"
   end
 
+  def self.isearch_url
+    Search.clear
+    term = self.match
+    term.gsub!(' ', '%20')
+    browse_url term
+  end
+
   def self.isearch_move_line
     isearch_done
     isearch_clean_overlays
@@ -559,10 +588,20 @@ class Search
   end
 
   def self.enter_search bm=nil, input=nil
+    # If line already has something, assume we'll add - ##foo/ to it
+    if ! Line.matches(/^ *$/)
+      input = Keys.prefix_u ? Clipboard.get : Keys.input(:prompt=>"Text to search for: ")
+      indent = Line.indent
+      Line.to_right
+      View.insert "\n#{indent}  - ###{input}/"
+      LineLauncher.launch
+      return
+    end
+
     bm ||= Keys.input(:timed=>true, :prompt=>"Enter bookmark in which to search: ")
     return unless bm
     input ||= Keys.prefix_u? ?   # Do search
-      Clipboard.get("0") :
+      Clipboard.get :
       Keys.input(:prompt=>"Text to search for: ")
 
     if bm == "."   # Do tree in dir from bookmark
@@ -631,6 +670,44 @@ class Search
     Effects.blink :what=>:region
   end
 
+  def self.isearch_just_tag
+    Search.clear
+
+    left, right = Search.left, Search.right
+    tag = Keys.input :timed=>true, :prompt=>"Enter tag name: "
+    left_tag = "<#{tag}>"
+    right_tag = "</#{tag}>"
+    if tag == 'di'
+      left_tag = "<div id='#{Keys.input :prompt=>"Enter id: "}'>"
+      right_tag = "</div>"
+    elsif tag == 'dc'
+      left_tag = "<div class='#{Keys.input :prompt=>"Enter id: "}'>"
+      right_tag = "</div>"
+    end
+
+    View.to(right)
+    View.insert right_tag
+    View.to(left)
+    View.insert left_tag
+    View.to right + left_tag.length
+  end
+
+
+  def self.isearch_just_wrap
+    Search.clear
+    left, right = Search.left, Search.right
+
+    wrap_with = Keys.input :timed=>true, :prompt=>"Enter string to wrap match with: "
+
+    View.to(right)
+    View.insert wrap_with
+    View.to(left)
+    View.insert wrap_with
+    View.to right + wrap_with.length
+  end
+
+
+
   def self.just_orange
     Search.clear
     Overlay.face(:notes_label, :left=>Search.left, :right=>Search.right)
@@ -651,7 +728,7 @@ class Search
     View.insert right
     View.to(Search.left)
     View.insert left
-    Move.backward
+    View.to Search.right + left.length
   end
 
   # Copy match as name (like Keys.as_name)
@@ -691,5 +768,10 @@ class Search
     right = View.point
     self.to_start   # Go back to search start
     View.delete(View.point, right)
+  end
+
+  def self.change_case
+    # Prompt user to get char
+    char = View.prompt(", lower, camel, snake")
   end
 end

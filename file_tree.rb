@@ -822,7 +822,6 @@ class FileTree
 
   # Draw tree, use dir of bookmark from user input
   def self.ls options={}
-
     dir = options[:dir]
     # If no dir, do tree in current dir
     dir ||= elvar.default_directory
@@ -837,8 +836,7 @@ class FileTree
         View.insert "\n\n";  backward_char 2
       end
     end
-
-    dir = View.expand_path(dir)  # Expand out ~
+    dir = View.expand_path(dir)   # Expand out ~
     # If file, back up to dir
     dir = Bookmarks.dir_only dir unless File.directory?(dir)
 
@@ -1189,9 +1187,9 @@ class FileTree
     end
 
     indent += " " * Keys.prefix_or_0   # If numeric prefix, add to indent
-
-    clip.sub! /\n+$/, ''
-    View.insert "#{indent}\|#{clip}\n"
+    clip = clip.sub /\n+$/, ''
+    clip.gsub! /^/, "#{indent}\|"
+    View.insert "#{clip}\n"
   end
 
   def self.enter_as_search
@@ -1267,6 +1265,8 @@ class FileTree
     if pattern.nil?
       if Line.matches(/\.rb$/)
         self.enter_lines(/^\s*(def|class|module|it|describe) /)
+      elsif Line.matches(/\.rake$/)
+        self.enter_lines(/^\s*(task|def|class) /)
       elsif Line.matches(/\.js$/)
         self.enter_lines(/(^ *(function)| = function\()/)
       elsif Line.matches(/\.notes$/)
@@ -1377,9 +1377,7 @@ class FileTree
 
   # Mapped to shortcuts that displays the trees
   def self.tree options={}
-
     dir = Keys.bookmark_as_path(:prompt=>"file_tree in which dir? (enter bookmark): ")
-
     dir = Bookmarks.dir_only(dir) if options[:recursive]
 
     options.merge!(:dir => dir)
@@ -1531,6 +1529,7 @@ class FileTree
   end
 
   def self.copy_path
+    Effects.blink(:what=>:line)
     # If no space at left, grab dir of file
     return Clipboard["0"] = View.file unless Line.matches(/^ /)
 

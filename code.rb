@@ -72,7 +72,7 @@ class Code
     orig.go
 
     # Eval the code
-    returned, out, exception = self.eval(buffer_substring(left, right).to_s)
+    returned, out, exception = self.eval(View.txt(left, right).to_s)
     begin
       message returned.to_s if returned.to_s.size < 50
     rescue
@@ -169,10 +169,10 @@ class Code
     end
 
     if View.file =~ /\/xiki\//   # If in xiki project
-      if View.file =~ /\/tests\//   # If in spec, open corresponding file
-        View.open View.file.sub('/tests/', '/').sub(/_test\.rb/, '.rb')
-      else   # Otherwise, open file corresponding test
-        View.open View.file.sub(/(.+)\/(.+)/, "\\1/tests/\\2").sub(/\.rb/, '_test.rb')
+      if View.file =~ /\/spec\//   # If in spec, open corresponding file
+        View.open View.file.sub('/spec/', '/').sub(/_spec\.rb/, '.rb')
+      else   # Otherwise, open file corresponding spec
+        View.open View.file.sub(/(.+)\/(.+)/, "\\1/spec/\\2").sub(/\.rb/, '_spec.rb')
       end
       return
     end
