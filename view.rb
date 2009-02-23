@@ -32,6 +32,14 @@ class View
   # Stores things user copies
   @@hash = {}
 
+  def self.horizontal_bar_size
+    @horizontal_bar_size ||= 45
+  end
+
+  def self.horizontal_bar_size=(size)
+    @horizontal_bar_size = size
+  end
+
   # Get windows that are the same width as me
   def self.windows_in_my_column
     my_left = left_edge
@@ -195,7 +203,7 @@ class View
       orig << [window_buffer(w), window_height(w)]
     end
     delete_other_windows
-    split_window_horizontally 45
+    split_window_horizontally horizontal_bar_size
     other_window 1
     o = nil
     # For each window but last
@@ -238,7 +246,7 @@ class View
     if self.bar?
       buffer = selected_window
       select_window frame_first_window
-      enlarge_window (39 - window_width), true
+      enlarge_window (horizontal_bar_size - 6 - window_width), true
       select_window buffer
     end
   end
