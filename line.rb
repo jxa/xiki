@@ -164,8 +164,8 @@ class Line
   def self.label line=nil
     line ||= self.value
     # Space or blank can follow colon
-    label = line[/^\s*- (.+?): /, 1]
-    label ||= line[/^\s*- (.+?):$/, 1]
+    label = line[/^\s*[+-] (.+?): /, 1]
+    label ||= line[/^\s*[+-] (.+?):$/, 1]
   end
 
   def self.without_label options={}
@@ -195,6 +195,24 @@ class Line
 
   def self.to_blank
     re_search_forward "^[ \t]*$"
+  end
+
+  def self.duplicate_line
+    Line.to_left
+    View.insert "#{Line.value}\n"
+    Code.comment(Line.left, Line.right) if Keys.prefix_u
+    Line.previous
+  end
+
+  def self.move direction
+    many = Keys.prefix_times
+
+    many = (0 - many) if direction == :previous
+    line = Line.value 1, :include_linebreak => true, :delete => true   # Get line
+    Line.to_next many
+    View.insert line
+
+    Line.previous
   end
 
 end

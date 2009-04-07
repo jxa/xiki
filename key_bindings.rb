@@ -52,8 +52,8 @@ class KeyBindings
     # Z
     #Keys.A0 { Clipboard.copy("0") }   # As 0: copy as key "0"
     Keys.A1 { Clipboard.copy("1") }   # As 1
-    Keys.A2 { Clipboard.copy("2") };  # As 2
-    Keys.A3 { Clipboard.copy("3") };  Keys.A4 { Clipboard.copy("4") }
+    Keys.A2 { Clipboard.copy("2") };  Keys.A3 { Clipboard.copy("3") };  Keys.A4 { Clipboard.copy("4") }
+    Keys.A5 { Clipboard.copy("5") };  Keys.A6 { Clipboard.copy("6") };  Keys.A7 { Clipboard.copy("7") }
   end
 
   def self.o_keys
@@ -233,7 +233,7 @@ class KeyBindings
     Keys.do_lines_arbitrary { Code.randomize_lines }
     Keys.do_load_browser { Firefox.reload }
     Keys.do_last_command { Console.do_last_command }
-    Keys.do_linebreaks_dos { set_buffer_file_coding_system :dos }
+    Keys.do_line_duplicate { Line.duplicate_line }
     #     Keys.do_load_emacs { App.load_emacs }   # *
     Keys.do_load_file { revert_buffer(true, true, true) }
     Keys.do_lines_having {   # delete lines matching a regex
@@ -245,9 +245,12 @@ class KeyBindings
     }
     Keys.do_lines_individual { Code.do_kill_duplicates }   # Uniqify, delete duplicates
     Keys.do_last_launch { LineLauncher.do_last_launch }
+    Keys.do_line_next { Line.move(:next) }
+    Keys.do_line_previous { Line.move(:previous) }
     Keys.do_lines_reverse { reverse_region(region_beginning, region_end) }
     Keys.do_lines_sort { sort_lines(nil, region_beginning, region_end) }
     Keys.do_linebreaks_unix { set_buffer_file_coding_system :unix }
+    Keys.do_linebreaks_windows { set_buffer_file_coding_system :dos }
     Keys.do_macro { Macros.run }   # do last macro *
     Keys.do_name_buffer { Buffers.rename }
     Keys.do_number_enter { Incrementer.enter }
@@ -321,9 +324,9 @@ class KeyBindings
     # L: layout...
     # Use L prefix for: adjusting the layout, changing what is visible
 
-    Keys.LL { recenter(elvar.current_prefix_arg) }   # LL - recenter (L's default) *
+    Keys.LL { View.recenter }   # LL - recenter (L's default) *
     Keys.layout_all { View.hide_others }   # *
-    Keys.layout_balance { View.balance }   # balance windows *
+    Keys.layout_balance { 3.times { View.balance } }   # balance windows *
     Keys.layout_create { View.create }   # open new view **
 
     Keys.layout_dimensions { View.dimensions }
@@ -333,10 +336,10 @@ class KeyBindings
     Keys.layout_files { FileTree.open_in_bar; View.to_nth 1; Effects.blink(:what=>:line) }
     Keys.layout_hide { View.hide }   # **
     Keys.layout_indent { Hide.hide_by_indent }   # only show lines indented less than x
-    # J
-    Keys.layout_kill { kill_this_buffer }   # **
+    Keys.layout_jump { View.shift }
+    Keys.layout_kill { $el.kill_this_buffer }   # **
     # L: defined above - mapped to what C-d does by default
-    Keys.layout_mark { Color.colorize }   # colorize line, etc
+    Keys.layout_marker { Color.colorize }   # colorize line, etc
     #Keys.layout_menu { CodeTree.layout_menu }   # show menu bare in current state
     Keys.layout_next { View.next(:blink=>true) }   # next view **
     Keys.layout_output { Code.open_log_view; Effects.blink(:what=>:line) }
@@ -404,17 +407,19 @@ class KeyBindings
     Keys.isearch_just_lowercase { Search.downcase }
     Keys.isearch_just_macro { Search.just_macro }
     Keys.isearch_just_name { Search.just_name }
-    Keys.isearch_just_orange { Search.just_orange }
+    Keys.isearch_just_open { Search.isearch_open }
+    Keys.isearch_just_plus { Search.just_increment }   # select match
     Keys.isearch_just_replace { Search.isearch_query_replace }   # replace
-
     Keys.isearch_just_snake { Search.isearch_just_underscores }   # make match be snake case
     Keys.isearch_just_tag { Search.isearch_just_tag }   # select match
 
     Keys.isearch_just_uppercase { Search.upcase }   # make match be snake case
+    Keys.isearch_just_variable { Search.isearch_just_surround_with_char '#{', '}' }
 
     Keys.isearch_just_wrap { Search.isearch_just_wrap }   # make match be snake case
+    Keys.isearch_just_yellow { Search.just_orange }
     Keys.isearch_kill { Search.cut; Location.as_spot('deleted') }   # cut
-    Keys.isearch_look { Search.uncover }   # Look: show results for search string in all open files
+    Keys.isearch_look { Search.uncover }   # Look: show results for search string in a bookmark
     # M: leave unmapped for stop
     # N: leave unmapped for next
     Keys.isearch_outline { Search.isearch_find_in_buffers(:current_only => true) }   # Outline
@@ -464,6 +469,16 @@ class KeyBindings
       Search.isearch_copy_as("4")
     end
 
+    define_key :isearch_mode_map, kbd("C-5") do
+      Search.isearch_copy_as("5")
+    end
+    define_key :isearch_mode_map, kbd("C-6") do
+      Search.isearch_copy_as("6")
+    end
+    define_key :isearch_mode_map, kbd("C-7") do
+      Search.isearch_copy_as("7")
+    end
+
     define_key :isearch_mode_map, kbd("C-=") do   # Add one char from isearch
       $el.isearch_yank_char
     end
@@ -490,7 +505,6 @@ class KeyBindings
     Keys._C(:isearch_mode_map) { Search.copy_and_comment }   # Comment line and copy it to starting point
     Keys._D(:isearch_mode_map) { Search.downcase }   # Downcase
     Keys._E(:isearch_mode_map) { Search.insert_tree_at_spot }   # Enter
-    #Keys._F(:isearch_mode_map) { Search.isearch_open }   # Find file
     Keys._G(:isearch_mode_map) { Search.isearch_google }   # Google search
     # H
     #Keys._I(:isearch_mode_map) { Search.insert_var_at_search_start }   # Interpolate: paste as interpolated variable

@@ -57,7 +57,7 @@ class Console
       end
       buffer ||= "*console #{dir}"
 
-      if ! reuse_buffer# || ! View.buffer_open?(buffer)
+      if ! reuse_buffer
         buffer = generate_new_buffer(buffer)
       end
       View.to_buffer buffer
@@ -132,6 +132,8 @@ class Console
   end
 
   def self.do_last_command
+    Code.open_log_view if Keys.prefix_u
+
     orig = View.index
 
     found = self.to_shell_buffer(nil, :no_create=>true)   # If not in shell buffer, go to it

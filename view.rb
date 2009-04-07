@@ -48,24 +48,43 @@ class View
 
   # Make current window larger.  Take into account that there might be other vertical windows
   def self.enlarge
+    default_height = 3
+    small = Keys.prefix || default_height
+    small = default_height if small == :u
+
+    small += 1
+
     # If universal prefix and in bar, widen bar
     self.balance if Keys.prefix_u and View.bar?
 
     ws = self.windows_in_my_column
 
-    # TODO: update this to use .in_bar?
+    wnum = ws.length   # Get number of windows
 
-    # Get number of windows
-    wnum = ws.length
-    small = 2
+    usable_height = frame_height - 1 - wnum
+
+    biggest = usable_height - ((wnum-1) * (small-1))
     selected = selected_window
-    # New height should be window minus 2 for each window
+
+    # Do multiple times (emacs daesn't get it right he first time)
+    5.times do
+      self.enlarge_internal :up, ws, selected, biggest, small
+    end
+    #     self.enlarge_internal :down, ws, selected, biggest, small
+
+  end
+
+  def self.enlarge_internal direction, ws, selected, biggest, small
+    ws = ws.reverse if direction != :up
+
     ws.each do |w|
       # If current window, set to remaining
       if w == selected
-        set_window_text_height w, frame_height - (wnum*small)
+        height = biggest # - 1
+        set_window_text_height w, height
       else
-        set_window_text_height w, small
+        height = small - 1
+        set_window_text_height w, height
       end
     end
   end
@@ -74,12 +93,14 @@ class View
   def self.create
     prefix = elvar.current_prefix_arg
     # If prefix is 3, do Vertical split
-    if prefix == 3 || Keys.prefix_u?
-      split_window_horizontally
-      other_window 1
+    if prefix == 3
+      $el.split_window_horizontally
+      $el.other_window 1
+    elsif Keys.prefix_u?
+      $el.split_window_vertically
     else
-      split_window_vertically
-      other_window 1 unless prefix
+      $el.split_window_vertically
+      $el.other_window 1 # unless prefix
     end
   end
 
@@ -228,7 +249,7 @@ class View
   # Returns whether we're in the bar
   def self.in_bar?
     self.bar? &&  # Bar is open
-      window_edges(View.window)[0] == 0  # Window is at left of frame
+      View.edges[0] == 0  # Window is at left of frame
   end
 
   def self.first
@@ -252,23 +273,25 @@ class View
   end
 
   def self.hide
-    left = View.left_edge
+    Keys.prefix_times.times do
+      left = View.left_edge
 
-    # If there's one above me and before me
-    index = View.index
-    middle = false
-    size = View.list.size
-    if index > 0 && index < (size - 1)   # Check existance
-      if( left == View.left_edge(View.list[index - 1]) &&
-        left == View.left_edge(View.list[index + 1]) )  # Check alignment
-        middle = true
+      # If there's one above me and before me
+      index = View.index
+      middle = false
+      size = View.list.size
+      if index > 0 && index < (size - 1)   # Check existance
+        if( left == View.left_edge(View.list[index - 1]) &&
+          left == View.left_edge(View.list[index + 1]) )  # Check alignment
+          middle = true
+        end
       end
-    end
-    # If I'm the last
-    last = index == (size - 1)
+      # If I'm the last
+      last = index == (size - 1)
 
-    delete_window
-    previous_multiframe_window if View.left_edge != left || middle || last
+      delete_window
+      previous_multiframe_window if View.left_edge != left || middle || last
+    end
   end
 
   def self.hide_others
@@ -370,6 +393,15 @@ class View
     down = Keys.prefix_times - 1
     Keys.clear_prefix
     View.to_after_bar
+
+    # how to know if only 1
+    # width == width of all
+
+    # If there's only one column (last view is at left), go to top
+    if self.edges[0] == 0
+      Move.to_window(1)
+    end
+
     down.times do
       View.next
     end
@@ -384,7 +416,7 @@ class View
 
     # Go to first window not on left margin
     self.list.each do |w|
-      if window_edges(w)[0] != 0  # Window is at left of frame
+      if self.edges(w)[0] != 0  # Window is at left of frame
         select_window(w)
         break
       end
@@ -393,7 +425,7 @@ class View
 
   def self.left_edge view=nil
     view ||= selected_window  # Default to current view
-    window_edges(view)[0]
+    self.edges(view)[0]
   end
 
   # Switches to a buffer
@@ -412,10 +444,35 @@ class View
     View.dir = options[:dir] if options[:dir]
   end
 
-  def self.txt left=nil, right=nil
-    left ||= point_min
-    right ||= point_max
-    buffer_substring left, right
+  def self.txt options={}, right=nil
+    # If 2nd arg is there, we were passed right,left
+    if right
+      left = options
+    else
+      left = options[:left] || point_min
+      right = options[:right] || point_max
+    end
+    $el.buffer_substring left, right
+  end
+
+  # Returns text from view according to prefix...
+  # - 3 means 3 lines, etc.
+  # - no prefix means the notes block
+  # - etc
+  def self.txt_per_prefix
+    prefix = Keys.prefix
+    #     prefix = options[:prefix]
+    case prefix
+    when 0   # Do paragraph (aka "block" for some reason)
+      left, right = Block.value
+    when 1..6
+      left = Line.left
+      right = $el.point_at_bol(prefix+1)
+    else   # Move this into ruby - block.rb?
+      ignore, left, right = View.block_positions "^|"
+    end
+    Effects.blink :left=>left, :right=>right
+    return [View.txt(left, right), left, right]
   end
 
   # Returns bounds of block in the form [left, after_header, right].
@@ -471,7 +528,7 @@ class View
   end
 
   def self.clear
-    erase_buffer
+    $el.erase_buffer
   end
 
   def self.dir
@@ -553,6 +610,10 @@ class View
 
   def self.empty?
     $el.point_min == $el.point_max
+  end
+
+  def self.recenter
+    $el.recenter Keys.prefix
   end
 
   def self.recenter_top
@@ -756,6 +817,35 @@ class View
     # Delete if there already
     @@dimension_options.delete_if{|i| i.first == name}
     @@dimension_options << [name, the_proc]
+  end
+
+  def self.shift
+    times = Keys.prefix_times;  Keys.clear_prefix
+
+    choice = Keys.input :one_char => true, :prompt => "Move this view to: (n)ext, (p)revious"
+    Effects.blink
+    times.times do
+
+      buffer_a =  View.buffer
+
+      # Go to other and switch to A
+      choice == "n" ? View.next : View.previous
+      buffer_b = View.buffer
+      $el.switch_to_buffer buffer_a
+
+      # Go to first and switch to B
+      choice == "n" ? View.previous : View.next
+      $el.switch_to_buffer buffer_b
+
+      choice == "n" ? View.next : View.previous
+
+    end
+    Effects.blink
+  end
+
+  def self.edges view=nil
+    view ||= self.current
+    $el.window_edges(view).to_a
   end
 
 end

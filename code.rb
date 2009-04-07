@@ -4,7 +4,6 @@ gem 'ruby2ruby'
 require 'ruby2ruby'
 require 'parse_tree'
 require 'parse_tree_extensions'
-require 'drb/drb'
 class Code
   extend ElMixin
 
@@ -21,58 +20,56 @@ class Code
   end
 
   def self.comment left=nil, right=nil
-    n = Keys.prefix_n(:clear=>true)   # Check for numeric prefix
-    if n   # If there, move down
-      Move.to_axis
-      orig = Location.new
-      Line.next n
-      View.set_mark
-      orig.go
+    if left.nil?
+      n = Keys.prefix_n(:clear=>true)   # Check for numeric prefix
+      if n   # If there, move down
+        Move.to_axis
+        View.set_mark Line.left(n+1)
+      end
+      left, right = View.range
     end
+    comment_or_uncomment_region left, right
+
+    View.set_mark Line.left(n+1) if n   # Re-calculate left and right (might have changed)
     left, right = View.range
-    comment_or_uncomment_region(left, right)
-    Code.indent
+    Code.indent left, right
   end
 
   def self.run   # Evaluates file, paragraph, or next x lines using el4r
     prefix = Keys.prefix
-
-    case prefix
-    when 0   # Do paragraph (aka "block" for some reason)
-      left, right = Block.value
-    when 7   # Do region
-      left, right = region_beginning, region_end
-    # If prefix of 8, run in rails console
-    when :u   # In rails console
-      return self.load_this_file
-    when :uu   # In rails console
-      return self.run_in_rails_console
-    when 8   # Put into file and run in console
-      File.open("/tmp/tmp.rb", "w") { |f| f << Notes.get_block.text }
-      return Console.run "ruby -I. /tmp/tmp.rb", :dir=>View.dir
-    when 9   # Pass whole file as ruby
-      return Console.run("ruby #{View.file_name}", :buffer => "*console ruby")
-
-    # If prefix of 1-6
-    when 1..6
-      started = point
-      left = Line.left
-      right = point_at_bol(elvar.current_prefix_arg+1)
-      goto_char started
+    if prefix.is_a?(Fixnum) && 0 <= prefix && prefix <= 7
+      txt, left, right = View.txt_per_prefix
     else
-      # Move this into ruby - block.rb?
-      ignore, left, right = View.block_positions "^|"
-    end
+      case prefix
+      when :u   # Load file in emacsruby
+        return self.load_this_file
+      when 8   # Put into file and run in console
+        File.open("/tmp/tmp.rb", "w") { |f| f << Notes.get_block.text }
+        return Console.run "ruby -I. /tmp/tmp.rb", :dir=>View.dir
+      when 9   # Pass whole file as ruby
+        return Console.run("ruby #{View.file_name}", :buffer => "*console ruby")
 
-    # Blink
-    Effects.blink :left => left, :right => right
+      # If prefix of 1-6
+      when 1..6
+        started = point
+        left = Line.left
+        right = point_at_bol(elvar.current_prefix_arg+1)
+        goto_char started
+      else
+        # Move this into ruby - block.rb?
+        ignore, left, right = View.block_positions "^|"
+      end
+
+      txt = View.txt(:left=>left, :right=>right).to_s
+      Effects.blink :left => left, :right => right
+    end
 
     orig = Location.new
     goto_char right; after_code = Location.new  # Remember right of code
     orig.go
 
     # Eval the code
-    returned, out, exception = self.eval(View.txt(left, right).to_s)
+    returned, out, exception = self.eval(txt)
     begin
       message returned.to_s if returned.to_s.size < 50
     rescue
@@ -132,8 +129,9 @@ class Code
     insert "Ol << \"#{txt}: \#{#{txt}}\""
   end
 
-  def self.indent
-    indent_region(* View.range)
+  def self.indent left=nil, right=nil
+    left, right = View.range if left.nil?
+    indent_region(left, right)
   end
 
   # Evaluates a string, and returns the output and the stdout string generated
@@ -181,50 +179,119 @@ class Code
     View.message "Don't recognize this file."
   end
 
-  def self.do_as_rspec
-    orig = Location.new
-    orig_index = View.index
+  def self.do_as_rspec options={}
+    args = []
 
-    test = ""
-    # If not 8, only run this test
-    unless Keys.prefix == 8
-      before_search = Location.new
-      Line.next
-      if Search.backward("^ *it ")
-        test = " -e " + Line.value[/".+"/]
-        before_search.go
+    if Keys.prefix_u
+      args << 'spec'
+      args << '-p'
+      args << '**/*.rb'
+
+      # If already in shell, don't change dir
+      if View.mode == :shell_mode
+        dir = nil
       else
-        beep
-        message("Not currently in a spec!")
-        Line.previous
-        return
+        begin
+          dir, spec = View.file.match(/(.+)\/(spec\/.+)/)[1,2]
+        rescue
+          dir, spec = View.file.match(/(.+)\/(app\/.+)/)[1,2]
+        end
       end
+      # /projects/memorizable/memorizable.merb/app/models/main.rb
+    elsif View.file !~ /_spec\.rb$/   # If not in an rspec file, delegate to: do_related_rspec
+      orig = Location.new
+      self.do_related_rspec
+      orig.go
+      return
+    else
+      if options[:line]   # If specific line, just use it
+        args << '-l'
+        args << options[:line]
+      else   # Otherwise, figure out what to run
+        orig = Location.new
+        orig_index = View.index
+
+        unless Keys.prefix == 8   # If not C-8, only run this test
+          before_search = Location.new
+          Line.next
+
+          # Find first preceding "it " or "describe "
+          it = Search.backward "^ *it ", :dont_move=>true
+          describe = Search.backward "^ *describe\\>", :dont_move=>true
+
+          if it.nil? && describe.nil?
+            View.beep
+            before_search.go
+            return View.message "Couldn't find it... or describe... block"
+          end
+
+          it ||= 0;  describe ||= 0
+
+          if it > describe   # If it, pass rspec -e "should...
+            View.cursor = it
+            test = Line.value[/"(.+)"/, 1]
+            args << '-e'
+            args << test
+          else   # If describe, pass rspec line number
+            View.cursor = describe
+            args << '-l'
+            args << View.line_number
+          end
+          before_search.go
+        end
+      end
+
+      # Chop off up until before /spec/
+      dir, spec = View.file.match(/(.+)\/(spec\/.+)/)[1,2]
+      args.unshift spec
     end
-    path = buffer_file_name
-    # Chop off up until before /spec/
-    dir, spec = path.match(/(.+)\/(spec\/.+)/)[1,2]
-    options = spec_server_running?? ' --drb ' : ''
-    Console.run "spec #{options}#{spec}#{test}", :dir => dir, :buffer => '*console for rspec', :reuse_buffer => true
-    orig.go unless View.index == orig_index   # Go back unless in same view
+
+    buffer = '*console for rspec'
+    # If spec buffer open, just switch to it
+    if View.buffer_open? buffer
+      View.to_buffer buffer
+    else   # Otherwise open it and run console
+      Console.run "merb -i", :dir=>dir, :buffer=>buffer
+    end
+    View.clear
+
+    #     args << '-D'   # Show diffs
+
+    command = "Spec::Runner::CommandLine.run(Spec::Runner::OptionParser.parse([#{args.map{|o| "\"#{o}\""}.join(",\n")}], $stderr, $stdout))"
+    command = "p :reload; #{command}"
+    View.insert command
+    Console.enter
+    #     View.to_highest
+    View.to 1
+    #       Console.run "spec #{spec}#{test}", :dir=>dir, :buffer=>buffer, :reuse_buffer=>true
+
+    orig.go unless orig.nil? || View.index == orig_index   # Go back unless in same view
   end
 
-  def self.spec_server_running?
-    unless @drb_local_server
-      @drb_local_server = Object.new
-      DRb.start_service(nil, @drb_local_server, nil)
-    end
-    spec_server = DRbObject.new_with_uri("druby://localhost:8989")
-    begin
-      spec_server.alive?
-    rescue NoMethodError
-      true
-    rescue DRb::DRbConnError
-      false
-    end
+  def self.do_related_rspec
+    # Find method name
+    orig = View.cursor
+    Line.next
+    Search.backward "^ +def "
+    meth = Line.value[/def ([\w.!]+)/, 1].sub /^self\./, ''
+    p meth
+    View.cursor = orig
+
+    # Go to relevant test
+    Code.open_related_rspec
+
+    # Find test for method:
+    View.to_highest
+    Search.forward "^ *describe .+, \"##{meth}\" do"
+    Move.to_axis
+    View.recenter_top
+    Code.do_as_rspec :line=>View.line_number
+
+   # Run test
   end
 
   def self.load_this_file
-    Effects.blink :what => :all
+    Effects.blink :what=>:all
     load View.file
   end
 
@@ -409,8 +476,6 @@ class Code
   def self.to_ruby o
     o.to_ruby
   end
-
-
 
 private
   def self.clear_and_go_back location
